@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 function getBackendBase(): string | null {
   const backend = process.env.BACKEND_URL;
@@ -29,6 +30,9 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
 
   const headers = new Headers(req.headers);
   headers.delete("host");
+  // Let fetch compute the correct length/encoding for the forwarded body.
+  headers.delete("content-length");
+  headers.delete("accept-encoding");
 
   let res: Response;
   try {
@@ -41,7 +45,7 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return Response.json(
-      { detail: `Failed to reach backend at ${backendBase}: ${message}` },
+      { detail: `Failed to reach backend at ${backendBase}: ${message}`, upstream: upstreamUrl.toString() },
       { status: 502 }
     );
   }
