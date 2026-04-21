@@ -37,3 +37,8 @@ EXPOSE 3000
 
 CMD ["npm", "run", "dev", "--", "--hostname", "0.0.0.0", "--port", "3000"]
 
+FROM backend-base AS backend-final
+
+# Keep backend as the default/final stage so platform builds
+# (that don't set a build target) won't accidentally build frontend.
+
