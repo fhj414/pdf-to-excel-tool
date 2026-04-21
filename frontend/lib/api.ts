@@ -1,12 +1,16 @@
 import { DocumentResponse } from "@/lib/types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? "").replace(/\/$/, "");
+
+function withBase(path: string): string {
+  return API_BASE ? `${API_BASE}${path}` : path;
+}
 
 export async function uploadPdf(file: File): Promise<number> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(`${API_BASE}/api/documents/upload`, {
+  const response = await fetch(withBase("/api/documents/upload"), {
     method: "POST",
     body: formData
   });
@@ -20,7 +24,7 @@ export async function uploadPdf(file: File): Promise<number> {
 }
 
 export async function createDemoDocument(): Promise<number> {
-  const response = await fetch(`${API_BASE}/api/demo/generate`, {
+  const response = await fetch(withBase("/api/demo/generate"), {
     method: "POST"
   });
 
@@ -33,7 +37,7 @@ export async function createDemoDocument(): Promise<number> {
 }
 
 export async function getDocument(id: string): Promise<DocumentResponse> {
-  const response = await fetch(`${API_BASE}/api/documents/${id}`, {
+  const response = await fetch(withBase(`/api/documents/${id}`), {
     cache: "no-store"
   });
 
@@ -45,7 +49,7 @@ export async function getDocument(id: string): Promise<DocumentResponse> {
 }
 
 export async function updateField(documentId: number, fieldIndex: number, fieldValue: string): Promise<DocumentResponse> {
-  const response = await fetch(`${API_BASE}/api/documents/${documentId}/fields/${fieldIndex}`, {
+  const response = await fetch(withBase(`/api/documents/${documentId}/fields/${fieldIndex}`), {
     method: "PUT",
     headers: {
       "Content-Type": "application/json"
@@ -61,14 +65,14 @@ export async function updateField(documentId: number, fieldIndex: number, fieldV
 }
 
 export function getExportUrl(documentId: number): string {
-  return `${API_BASE}/api/documents/${documentId}/export`;
+  return withBase(`/api/documents/${documentId}/export`);
 }
 
 export function getAssetUrl(path: string): string {
   if (path.startsWith("http")) {
     return path;
   }
-  return `${API_BASE}${path}`;
+  return withBase(path);
 }
 
 async function extractError(response: Response): Promise<string> {

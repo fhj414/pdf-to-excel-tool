@@ -1,6 +1,21 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
+  async rewrites() {
+    const backend = process.env.BACKEND_URL;
+    if (!backend) return [];
+    const base = backend.replace(/\/$/, "");
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${base}/api/:path*`
+      },
+      {
+        source: "/static/:path*",
+        destination: `${base}/static/:path*`
+      }
+    ];
+  },
   images: {
     remotePatterns: [
       {
