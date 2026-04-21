@@ -3,7 +3,14 @@ const nextConfig = {
   output: "standalone",
   async rewrites() {
     const backend = process.env.BACKEND_URL;
-    if (!backend) return [];
+    if (!backend) {
+      return [
+        {
+          source: "/static/:path*",
+          destination: "/api/static/:path*"
+        }
+      ];
+    }
     const base = backend.replace(/\/$/, "");
     return [
       {
@@ -33,4 +40,3 @@ const nextConfig = {
 };
 
 export default nextConfig;
-

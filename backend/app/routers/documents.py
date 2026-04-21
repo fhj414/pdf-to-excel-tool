@@ -20,7 +20,7 @@ from app.services.pdf_parser import (
     validate_fields,
 )
 
-router = APIRouter(prefix="/api", tags=["documents"])
+router = APIRouter(tags=["documents"])
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
