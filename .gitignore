@@ -11,4 +11,5 @@ __pycache__
 data
 backend/data
 frontend/.next
+frontend/package-lock.json
 
