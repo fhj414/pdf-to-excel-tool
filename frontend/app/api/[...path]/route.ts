@@ -2,34 +2,49 @@ import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-function getBackendBase(): string {
+function getBackendBase(): string | null {
   const backend = process.env.BACKEND_URL;
-  if (!backend) {
-    throw new Error("Missing BACKEND_URL env var on Vercel.");
-  }
+  if (!backend) return null;
   return backend.replace(/\/$/, "");
 }
 
-function buildUpstreamUrl(req: NextRequest, pathParts: string[]): URL {
-  const upstream = new URL(`${getBackendBase()}/api/${pathParts.join("/")}`);
+function buildUpstreamUrl(backendBase: string, req: NextRequest, pathParts: string[]): URL {
+  const upstream = new URL(`${backendBase}/api/${pathParts.join("/")}`);
   const search = req.nextUrl.searchParams.toString();
   if (search) upstream.search = search;
   return upstream;
 }
 
 async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
+  const backendBase = getBackendBase();
+  if (!backendBase) {
+    return Response.json(
+      { detail: "Missing BACKEND_URL env var on Vercel. Set it to your Render backend base URL." },
+      { status: 500 }
+    );
+  }
+
   const { path } = await ctx.params;
-  const upstreamUrl = buildUpstreamUrl(req, path);
+  const upstreamUrl = buildUpstreamUrl(backendBase, req, path);
 
   const headers = new Headers(req.headers);
   headers.delete("host");
 
-  const res = await fetch(upstreamUrl, {
-    method: req.method,
-    headers,
-    body: req.method === "GET" || req.method === "HEAD" ? undefined : await req.arrayBuffer(),
-    redirect: "manual"
-  });
+  let res: Response;
+  try {
+    res = await fetch(upstreamUrl, {
+      method: req.method,
+      headers,
+      body: req.method === "GET" || req.method === "HEAD" ? undefined : await req.arrayBuffer(),
+      redirect: "manual"
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return Response.json(
+      { detail: `Failed to reach backend at ${backendBase}: ${message}` },
+      { status: 502 }
+    );
+  }
 
   const outHeaders = new Headers(res.headers);
   outHeaders.delete("content-encoding");
