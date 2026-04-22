@@ -1,12 +1,5 @@
 {
   "experimentalServices": {
-    "api": {
-      "entrypoint": "backend/main.py",
-      "routePrefix": "/api",
-      "memory": 2048,
-      "maxDuration": 300,
-      "includeFiles": ["backend/app/**"]
-    },
     "web": {
       "entrypoint": "frontend",
       "routePrefix": "/"

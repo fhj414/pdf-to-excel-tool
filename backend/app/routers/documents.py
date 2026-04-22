@@ -1,5 +1,4 @@
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import uuid4
 
@@ -8,12 +7,11 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.database import SessionLocal, get_db
+from app.database import get_db
 from app.models import Document
-from app.schemas import DocumentResponse, FieldUpdateRequest, UploadResponse, ValidationIssue
+from app.schemas import DocumentResponse, FieldUpdateRequest, UploadResponse
 from app.services.excel_exporter import export_excel
 from app.services.pdf_parser import (
-    empty_parse_result,
     ensure_pdf_input,
     generate_demo_pdf,
     parse_pdf,
@@ -25,7 +23,6 @@ from app.services.pdf_parser import (
 router = APIRouter(tags=["documents"])
 logger = logging.getLogger(__name__)
 settings = get_settings()
-executor = ThreadPoolExecutor(max_workers=2)
 
 
 def get_document_or_404(db: Session, document_id: int) -> Document:
@@ -33,39 +30,6 @@ def get_document_or_404(db: Session, document_id: int) -> Document:
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     return document
-
-
-def process_document_in_background(document_id: int) -> None:
-    db = SessionLocal()
-    try:
-        document = db.get(Document, document_id)
-        if not document:
-            logger.warning("Background parse skipped; document %s not found", document_id)
-            return
-
-        parse_input_path = ensure_pdf_input(Path(document.original_path))
-        result = parse_pdf(parse_input_path, settings.static_path, settings.export_path, document.id)
-        document.pdf_type = result.pdf_type
-        document.page_count = len(result.pages)
-        document.status = "processed"
-        document.parse_result = parse_result_to_json(result)
-        db.add(document)
-        db.commit()
-    except Exception as exc:
-        logger.exception("Background parse failed for document %s", document_id)
-        document = db.get(Document, document_id)
-        if document:
-            result = empty_parse_result()
-            result.validation_issues.append(
-                ValidationIssue(rule="parse_failed", message=str(exc), severity="error")
-            )
-            result.stats.error_count = 1
-            document.status = "failed"
-            document.parse_result = parse_result_to_json(result)
-            db.add(document)
-            db.commit()
-    finally:
-        db.close()
 
 
 @router.get("/health")
@@ -98,7 +62,28 @@ async def upload_document(
     db.commit()
     db.refresh(document)
 
-    executor.submit(process_document_in_background, document.id)
+    try:
+        parse_input_path = ensure_pdf_input(stored_path)
+        result = parse_pdf(parse_input_path, settings.static_path, settings.export_path, document.id)
+    except ValueError as exc:
+        document.status = "failed"
+        db.add(document)
+        db.commit()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Failed to parse uploaded document %s", document.id)
+        document.status = "failed"
+        db.add(document)
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"Document parsing failed: {exc}") from exc
+
+    document.pdf_type = result.pdf_type
+    document.page_count = len(result.pages)
+    document.status = "processed"
+    document.parse_result = parse_result_to_json(result)
+    db.add(document)
+    db.commit()
+
     return UploadResponse(document_id=document.id, status=document.status)
 
 
@@ -112,7 +97,14 @@ def generate_demo_document(db: Session = Depends(get_db)) -> UploadResponse:
     db.commit()
     db.refresh(document)
 
-    executor.submit(process_document_in_background, document.id)
+    result = parse_pdf(demo_path, settings.static_path, settings.export_path, document.id)
+    document.pdf_type = result.pdf_type
+    document.page_count = len(result.pages)
+    document.status = "processed"
+    document.parse_result = parse_result_to_json(result)
+    db.add(document)
+    db.commit()
+
     return UploadResponse(document_id=document.id, status=document.status)
 
 
