@@ -1,8 +1,9 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -24,6 +25,7 @@ from app.services.pdf_parser import (
 router = APIRouter(tags=["documents"])
 logger = logging.getLogger(__name__)
 settings = get_settings()
+executor = ThreadPoolExecutor(max_workers=2)
 
 
 def get_document_or_404(db: Session, document_id: int) -> Document:
@@ -73,7 +75,6 @@ def healthcheck() -> dict[str, str]:
 
 @router.post("/documents/upload", response_model=UploadResponse)
 async def upload_document(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ) -> UploadResponse:
@@ -97,12 +98,12 @@ async def upload_document(
     db.commit()
     db.refresh(document)
 
-    background_tasks.add_task(process_document_in_background, document.id)
+    executor.submit(process_document_in_background, document.id)
     return UploadResponse(document_id=document.id, status=document.status)
 
 
 @router.post("/demo/generate", response_model=UploadResponse)
-def generate_demo_document(background_tasks: BackgroundTasks, db: Session = Depends(get_db)) -> UploadResponse:
+def generate_demo_document(db: Session = Depends(get_db)) -> UploadResponse:
     demo_path = settings.upload_path / f"demo_{uuid4().hex[:8]}.pdf"
     generate_demo_pdf(demo_path)
 
@@ -111,7 +112,7 @@ def generate_demo_document(background_tasks: BackgroundTasks, db: Session = Depe
     db.commit()
     db.refresh(document)
 
-    background_tasks.add_task(process_document_in_background, document.id)
+    executor.submit(process_document_in_background, document.id)
     return UploadResponse(document_id=document.id, status=document.status)
 
 

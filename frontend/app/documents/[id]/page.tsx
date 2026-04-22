@@ -1,41 +1,57 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 import { DocumentReview } from "@/components/document-review";
 import { getDocument } from "@/lib/api";
 import type { DocumentResponse } from "@/lib/types";
 
+type LoadPhase = "loading" | "polling" | "ready" | "failed";
+
 export default function DocumentPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const [document, setDocument] = useState<DocumentResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [phase, setPhase] = useState<LoadPhase>("loading");
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
     let active = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let consecutiveFailures = 0;
 
     async function load() {
       try {
+        setPhase((current) => (current === "ready" ? current : "polling"));
         const result = await getDocument(params.id);
         if (active) {
           setDocument(result);
           setError(null);
+          consecutiveFailures = 0;
           if (result.status === "processing") {
             timer = setTimeout(load, 2000);
+          } else {
+            setPhase("ready");
           }
         }
       } catch (loadError) {
         if (active) {
-          setError(loadError instanceof Error ? loadError.message : "加载失败");
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
+          consecutiveFailures += 1;
+          const message = loadError instanceof Error ? loadError.message : "加载失败";
+          setError(message);
+          setPhase("failed");
+
+          const backoffMs = Math.min(15000, 1200 * Math.max(1, consecutiveFailures));
+          timer = setTimeout(load, backoffMs);
         }
       }
+    }
+
+    if (!params.id || Number.isNaN(Number(params.id))) {
+      router.replace("/");
+      return () => {};
     }
 
     void load();
@@ -45,9 +61,9 @@ export default function DocumentPage() {
         clearTimeout(timer);
       }
     };
-  }, [params.id]);
+  }, [params.id, router, retryTick]);
 
-  if (loading) {
+  if (phase === "loading") {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#eff4f8]">
         <div className="rounded-3xl border border-line bg-white px-8 py-6 text-sm text-slate shadow-card">正在加载解析结果...</div>
@@ -55,11 +71,49 @@ export default function DocumentPage() {
     );
   }
 
-  if (error || !document) {
+  if (phase === "failed") {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#eff4f8] px-4">
-        <div className="rounded-3xl border border-red-200 bg-white px-8 py-6 text-sm text-red-700 shadow-card">
-          {error ?? "文档不存在"}
+        <div className="w-full max-w-md rounded-3xl border border-red-200 bg-white px-8 py-7 text-sm shadow-card">
+          <div className="text-red-700">{error ?? "加载失败"}</div>
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+            <button
+              type="button"
+              className="rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
+              onClick={() => setRetryTick((tick) => tick + 1)}
+            >
+              立即重试
+            </button>
+            <button
+              type="button"
+              className="rounded-full border border-line bg-white px-5 py-2.5 text-sm font-medium text-ink transition hover:border-accent hover:text-accent"
+              onClick={() => router.replace("/")}
+            >
+              回到主页
+            </button>
+          </div>
+          <div className="mt-4 text-xs leading-6 text-slate">
+            如果你刚上传完，这通常是网络或服务端短暂波动。页面会自动重试；也可以返回主页重新上传。
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (!document) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#eff4f8] px-4">
+        <div className="w-full max-w-md rounded-3xl border border-line bg-white px-8 py-7 text-sm shadow-card">
+          <div className="text-slate">文档不存在或已被清理。</div>
+          <div className="mt-5">
+            <button
+              type="button"
+              className="rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
+              onClick={() => router.replace("/")}
+            >
+              回到主页
+            </button>
+          </div>
         </div>
       </main>
     );
@@ -82,8 +136,24 @@ export default function DocumentPage() {
   if (document.status === "failed") {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#eff4f8] px-4">
-        <div className="max-w-md rounded-3xl border border-red-200 bg-white px-8 py-7 text-center text-red-700 shadow-card">
-          解析失败，请稍后重试或换一张更清晰的图片。
+        <div className="w-full max-w-md rounded-3xl border border-red-200 bg-white px-8 py-7 text-center shadow-card">
+          <div className="text-red-700">解析失败，请稍后重试或换一张更清晰的图片。</div>
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-center">
+            <button
+              type="button"
+              className="rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
+              onClick={() => router.replace("/")}
+            >
+              回到主页
+            </button>
+            <button
+              type="button"
+              className="rounded-full border border-line bg-white px-5 py-2.5 text-sm font-medium text-ink transition hover:border-accent hover:text-accent"
+              onClick={() => setRetryTick((tick) => tick + 1)}
+            >
+              重新拉取结果
+            </button>
+          </div>
         </div>
       </main>
     );
