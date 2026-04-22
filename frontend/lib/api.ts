@@ -1,6 +1,15 @@
 import { DocumentResponse } from "@/lib/types";
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? "").replace(/\/$/, "");
+function normalizeApiBase(value: string | undefined): string {
+  if (!value) return "";
+  const trimmed = value.replace(/\/$/, "");
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+  return `https://${trimmed}`;
+}
+
+const API_BASE = normalizeApiBase(process.env.NEXT_PUBLIC_API_BASE);
 
 function withBase(path: string): string {
   return API_BASE ? `${API_BASE}${path}` : path;
