@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import base64
+from io import BytesIO
 from dataclasses import dataclass
 from pathlib import Path
 from urllib import error as urllib_error
@@ -365,8 +366,8 @@ def extract_with_openrouter(
 
 
 def call_openrouter_table_extraction(image_path: Path, page_no: int) -> VisionExtraction | None:
-    image_base64 = base64.b64encode(image_path.read_bytes()).decode("utf-8")
-    image_url = f"data:image/{image_path.suffix.lstrip('.').lower()};base64,{image_base64}"
+    image_base64 = encode_image_for_vision(image_path)
+    image_url = f"data:image/jpeg;base64,{image_base64}"
     prompt = (
         "Extract the document into strict JSON.\n"
         "Prioritize exact table reconstruction for spreadsheet-like images.\n"
@@ -429,7 +430,7 @@ def request_openrouter_chat_completion(payload: dict[str, object]) -> dict[str, 
     )
 
     try:
-        with urllib_request.urlopen(request, timeout=75) as response:
+        with urllib_request.urlopen(request, timeout=settings.openrouter_timeout_seconds) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib_error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="ignore")
@@ -438,6 +439,19 @@ def request_openrouter_chat_completion(payload: dict[str, object]) -> dict[str, 
         logger.warning("OpenRouter request failed: %s", exc)
 
     return None
+
+
+def encode_image_for_vision(image_path: Path) -> str:
+    with Image.open(image_path) as image:
+        rgb_image = image.convert("RGB")
+        if rgb_image.width > settings.vision_image_max_width:
+            ratio = settings.vision_image_max_width / rgb_image.width
+            next_size = (settings.vision_image_max_width, max(1, int(rgb_image.height * ratio)))
+            rgb_image = rgb_image.resize(next_size, Image.Resampling.LANCZOS)
+
+        buffer = BytesIO()
+        rgb_image.save(buffer, format="JPEG", quality=settings.vision_image_jpeg_quality, optimize=True)
+        return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
 
 def extract_message_content(payload: dict[str, object]) -> str:
@@ -1142,7 +1156,20 @@ def parse_result_to_json(result: ParseResult) -> str:
 
 
 def parse_result_from_json(payload: str) -> ParseResult:
+    if not payload or payload == "{}":
+        return empty_parse_result()
     return ParseResult.model_validate(json.loads(payload))
+
+
+def empty_parse_result() -> ParseResult:
+    return ParseResult(
+        pdf_type="digital",
+        fields=[],
+        tables=[],
+        validation_issues=[],
+        pages=[],
+        stats=ParseStats(field_count=0, table_count=0, low_confidence_count=0, error_count=0),
+    )
 
 
 def generate_demo_pdf(output_path: Path) -> Path:

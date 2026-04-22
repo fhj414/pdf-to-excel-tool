@@ -15,12 +15,15 @@ class Settings(BaseSettings):
     export_dir: str = "./data/exports"
     static_dir: str = "./data/static"
     max_upload_mb: int = Field(default=30, ge=1)
-    default_model_name: str = "google/gemini-2.5-flash-lite"
+    default_model_name: str = "google/gemini-2.0-flash-lite-001"
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    openrouter_fallback_models_raw: str = "google/gemini-2.5-flash"
+    openrouter_fallback_models_raw: str = "google/gemini-2.0-flash-001,google/gemini-2.5-flash-lite"
     openrouter_site_url: str = "https://finance-tools.fuhaojun.com"
     openrouter_app_title: str = "PDF to Excel Tool"
+    openrouter_timeout_seconds: int = Field(default=35, ge=5, le=120)
+    vision_image_max_width: int = Field(default=1400, ge=600, le=2400)
+    vision_image_jpeg_quality: int = Field(default=72, ge=40, le=95)
     cors_origins_raw: str = (
         "http://localhost:3000,"
         "http://127.0.0.1:3000,"
