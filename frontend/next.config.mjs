@@ -1,8 +1,17 @@
 /** @type {import('next').NextConfig} */
+function normalizeBackendUrl(value) {
+  if (!value) return "";
+  const trimmed = value.replace(/\/$/, "");
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+  return `https://${trimmed}`;
+}
+
 const nextConfig = {
   output: "standalone",
   async rewrites() {
-    const backend = process.env.BACKEND_URL;
+    const backend = normalizeBackendUrl(process.env.BACKEND_URL);
     if (!backend) {
       return [
         {
@@ -11,15 +20,14 @@ const nextConfig = {
         }
       ];
     }
-    const base = backend.replace(/\/$/, "");
     return [
       {
         source: "/api/:path*",
-        destination: `${base}/api/:path*`
+        destination: `${backend}/api/:path*`
       },
       {
         source: "/static/:path*",
-        destination: `${base}/static/:path*`
+        destination: `${backend}/static/:path*`
       }
     ];
   },
