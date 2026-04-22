@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     vision_image_max_width: int = Field(default=1400, ge=600, le=2400)
     vision_image_jpeg_quality: int = Field(default=72, ge=40, le=95)
     cors_origins_raw: str = (
+        "https://finance-tools.fuhaojun.com,"
+        "https://pdf-to-excel-tool.vercel.app,"
         "http://localhost:3000,"
         "http://127.0.0.1:3000,"
         "http://localhost:3001,"

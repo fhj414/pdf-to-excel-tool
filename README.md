@@ -97,6 +97,22 @@ docker compose up --build
 - `GET /api/documents/{document_id}/export`：导出 Excel
 - `GET /api/health`：健康检查
 
+## 线上部署关键配置
+
+生产环境建议前端直接请求 Render 后端，不要让图片上传经过 Vercel/Cloudflare 的 `/api` 代理。Vercel 前端环境变量需要设置：
+
+```env
+NEXT_PUBLIC_API_BASE=https://你的-render后端域名
+```
+
+Render 后端环境变量需要放行前端域名：
+
+```env
+CORS_ORIGINS_RAW=https://finance-tools.fuhaojun.com,https://pdf-to-excel-tool.vercel.app
+```
+
+`BACKEND_URL` 只用于 Vercel 的兜底代理；上传文件以 `NEXT_PUBLIC_API_BASE` 直连 Render 为准。
+
 ## 解析流程
 
 后端统一入口为 `parse_pdf()`，内部拆分为：
