@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: pdf-to-excel-tool-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: DATABASE_URL
+        value: sqlite:////tmp/pdf_to_excel_app.db
+      - key: UPLOAD_DIR
+        value: /tmp/pdf_to_excel_uploads
+      - key: EXPORT_DIR
+        value: /tmp/pdf_to_excel_exports
+      - key: STATIC_DIR
+        value: /tmp/pdf_to_excel_static
+      - key: CORS_ORIGINS_RAW
+        value: https://finance-tools.fuhaojun.com,https://pdf-to-excel-tool.vercel.app
+      - key: ENABLE_AI_VISION_FALLBACK
+        value: "false"
