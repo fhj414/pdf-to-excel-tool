@@ -90,12 +90,12 @@ def extract_scanned_content(
     document_id: int,
     page_previews: list[PagePreview],
 ) -> tuple[list[FieldItem], list[TableItem]]:
-    vision_result = extract_with_moonshot(static_dir, document_id, page_previews)
+    vision_result = extract_with_openrouter(static_dir, document_id, page_previews)
     if vision_result and (vision_result.tables or vision_result.fields):
-        logger.info("Moonshot vision extraction succeeded for document %s", document_id)
+        logger.info("OpenRouter vision extraction succeeded for document %s", document_id)
         return vision_result.fields, vision_result.tables
 
-    logger.info("Moonshot vision extraction unavailable or empty; falling back to OCR for document %s", document_id)
+    logger.info("OpenRouter vision extraction unavailable or empty; falling back to OCR for document %s", document_id)
     ocr_pages = run_ocr_on_pages(static_dir, document_id, page_previews)
     return extract_ocr_fields(ocr_pages), extract_ocr_tables(ocr_pages)
 
@@ -343,19 +343,19 @@ def run_ocr_placeholder() -> list[FieldItem]:
     ]
 
 
-def extract_with_moonshot(
+def extract_with_openrouter(
     static_dir: Path,
     document_id: int,
     page_previews: list[PagePreview],
 ) -> VisionExtraction | None:
-    if not settings.moonshot_api_key:
+    if not settings.openrouter_api_key:
         return None
 
     all_fields: list[FieldItem] = []
     all_tables: list[TableItem] = []
     for preview in page_previews:
         image_path = static_dir / f"document_{document_id}" / f"page_{preview.page_no}.png"
-        page_result = call_moonshot_table_extraction(image_path, preview.page_no)
+        page_result = call_openrouter_table_extraction(image_path, preview.page_no)
         if page_result is None:
             return None
         all_fields.extend(page_result.fields)
@@ -364,9 +364,8 @@ def extract_with_moonshot(
     return VisionExtraction(fields=all_fields, tables=all_tables)
 
 
-def call_moonshot_table_extraction(image_path: Path, page_no: int) -> VisionExtraction | None:
+def call_openrouter_table_extraction(image_path: Path, page_no: int) -> VisionExtraction | None:
     image_base64 = base64.b64encode(image_path.read_bytes()).decode("utf-8")
-    model_name = settings.default_model_name.replace("moonshot/", "", 1)
     image_url = f"data:image/{image_path.suffix.lstrip('.').lower()};base64,{image_base64}"
     prompt = (
         "Extract the document into strict JSON.\n"
@@ -381,8 +380,12 @@ def call_moonshot_table_extraction(image_path: Path, page_no: int) -> VisionExtr
         "}"
     )
     payload = {
-        "model": model_name,
-        "thinking": {"type": "disabled"},
+        "model": settings.default_model_name,
+        "models": settings.openrouter_fallback_models,
+        "route": "fallback",
+        "temperature": 0,
+        "max_tokens": 12000,
+        "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": "You are a precise document table extraction engine. Output valid JSON only."},
             {
@@ -395,7 +398,7 @@ def call_moonshot_table_extraction(image_path: Path, page_no: int) -> VisionExtr
         ],
     }
 
-    response_payload = request_moonshot_chat_completion(payload)
+    response_payload = request_openrouter_chat_completion(payload)
     if response_payload is None:
         return None
 
@@ -405,43 +408,34 @@ def call_moonshot_table_extraction(image_path: Path, page_no: int) -> VisionExtr
 
     parsed = parse_json_object(content)
     if parsed is None:
-        logger.warning("Moonshot returned non-JSON content")
+        logger.warning("OpenRouter returned non-JSON content")
         return None
 
     return vision_payload_to_result(parsed, page_no)
 
 
-def request_moonshot_chat_completion(payload: dict[str, object]) -> dict[str, object] | None:
-    tried_urls: set[str] = set()
-    base_urls = [settings.moonshot_base_url]
-    if "api.moonshot.ai" in settings.moonshot_base_url:
-        base_urls.append(settings.moonshot_base_url.replace("api.moonshot.ai", "api.moonshot.cn"))
-    elif "api.moonshot.cn" in settings.moonshot_base_url:
-        base_urls.append(settings.moonshot_base_url.replace("api.moonshot.cn", "api.moonshot.ai"))
+def request_openrouter_chat_completion(payload: dict[str, object]) -> dict[str, object] | None:
+    request_url = f"{settings.openrouter_base_url.rstrip('/')}/chat/completions"
+    request = urllib_request.Request(
+        url=request_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {settings.openrouter_api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": settings.openrouter_site_url,
+            "X-OpenRouter-Title": settings.openrouter_app_title,
+        },
+        method="POST",
+    )
 
-    for base_url in base_urls:
-        request_url = f"{base_url.rstrip('/')}/chat/completions"
-        if request_url in tried_urls:
-            continue
-        tried_urls.add(request_url)
-        request = urllib_request.Request(
-            url=request_url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {settings.moonshot_api_key}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-
-        try:
-            with urllib_request.urlopen(request, timeout=90) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except urllib_error.HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="ignore")
-            logger.warning("Moonshot request failed via %s with status %s: %s", base_url, exc.code, body[:500])
-        except Exception as exc:
-            logger.warning("Moonshot request failed via %s: %s", base_url, exc)
+    try:
+        with urllib_request.urlopen(request, timeout=75) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib_error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="ignore")
+        logger.warning("OpenRouter request failed with status %s: %s", exc.code, body[:500])
+    except Exception as exc:
+        logger.warning("OpenRouter request failed: %s", exc)
 
     return None
 

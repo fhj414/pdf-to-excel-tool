@@ -148,7 +148,26 @@ docker compose up --build
 
 - 数字型 PDF 可直接抽取文本与表格
 - 图片上传会自动转单页 PDF，再复用统一解析链路
-- 扫描型 PDF 不会报错，并能返回统一结果与待接入 OCR 的提示
+- 扫描型 PDF / 图片优先调用 OpenRouter 视觉模型抽取表格，再自动降级到本地 OCR
 - 在线修订、规则校验、Excel 导出完整可用
 
 后续可继续扩展模板学习、票据类型识别、字段映射训练与 OCR。
+
+## AI 表格抽取配置
+
+扫描型 PDF 和图片会优先走 OpenRouter 视觉模型。默认模型偏速度和成本：
+
+```env
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+DEFAULT_MODEL_NAME=google/gemini-2.5-flash-lite
+OPENROUTER_FALLBACK_MODELS_RAW=google/gemini-2.5-flash
+OPENROUTER_SITE_URL=https://finance-tools.fuhaojun.com
+OPENROUTER_APP_TITLE=PDF to Excel Tool
+OPENROUTER_API_KEY=你的 OpenRouter Key
+```
+
+如果复杂表格识别质量不够，可以只调整模型名：
+
+```env
+DEFAULT_MODEL_NAME=google/gemini-2.5-flash
+```
