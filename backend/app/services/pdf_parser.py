@@ -91,14 +91,25 @@ def extract_scanned_content(
     document_id: int,
     page_previews: list[PagePreview],
 ) -> tuple[list[FieldItem], list[TableItem]]:
+    ocr_pages = run_ocr_on_pages(static_dir, document_id, page_previews)
+    ocr_fields = extract_ocr_fields(ocr_pages)
+    ocr_tables = extract_ocr_tables(ocr_pages)
+    if ocr_tables or not settings.enable_ai_vision_fallback:
+        logger.info(
+            "Local OCR extraction completed for document %s with %s tables and %s fields",
+            document_id,
+            len(ocr_tables),
+            len(ocr_fields),
+        )
+        return ocr_fields, ocr_tables
+
     vision_result = extract_with_openrouter(static_dir, document_id, page_previews)
     if vision_result and (vision_result.tables or vision_result.fields):
-        logger.info("OpenRouter vision extraction succeeded for document %s", document_id)
+        logger.info("OpenRouter fallback extraction succeeded for document %s", document_id)
         return vision_result.fields, vision_result.tables
 
-    logger.info("OpenRouter vision extraction unavailable or empty; falling back to OCR for document %s", document_id)
-    ocr_pages = run_ocr_on_pages(static_dir, document_id, page_previews)
-    return extract_ocr_fields(ocr_pages), extract_ocr_tables(ocr_pages)
+    logger.info("OpenRouter fallback unavailable or empty; using local OCR result for document %s", document_id)
+    return ocr_fields, ocr_tables
 
 
 def ensure_pdf_input(source_path: Path) -> Path:
@@ -653,6 +664,10 @@ def merge_row_cells(items: list[OCRDetection]) -> list[OCRDetection]:
 
 
 def build_table_from_rows(rows: list[list[OCRDetection]], page_no: int) -> TableItem | None:
+    grid_table = build_grid_table_from_rows(rows, page_no)
+    if grid_table:
+        return grid_table
+
     header_keywords = (
         "qty",
         "amount",
@@ -734,6 +749,85 @@ def build_table_from_rows(rows: list[list[OCRDetection]], page_no: int) -> Table
     )
 
     return TableItem(columns=columns, rows=table_rows, page_no=page_no, confidence=max(0.55, min(0.92, avg_confidence)))
+
+
+def build_grid_table_from_rows(rows: list[list[OCRDetection]], page_no: int) -> TableItem | None:
+    candidates = [row for row in rows if len(row) >= 4]
+    if len(candidates) < 2:
+        return None
+
+    header_index = None
+    for index, row in enumerate(rows):
+        if len(row) < 4:
+            continue
+        line_text = " ".join(item.text.lower() for item in row)
+        if score_table_header(line_text) >= 2 or has_mixed_text_header(row):
+            header_index = index
+            break
+
+    if header_index is None:
+        return None
+
+    header_cells = rows[header_index]
+    column_ranges = derive_ranges_from_cells(header_cells)
+    columns = [normalize_display_header(cell.text, index) for index, cell in enumerate(header_cells)]
+    if len(columns) < 4:
+        return None
+
+    table_rows: list[dict[str, str]] = []
+    for row in rows[header_index + 1 :]:
+        if len(row) < 2:
+            if table_rows:
+                break
+            continue
+        if not looks_like_data_row(row) and not looks_like_continuation_row(row):
+            if table_rows:
+                break
+            continue
+
+        assigned_items: dict[str, list[OCRDetection]] = {column: [] for column in columns}
+        for cell in row:
+            target_index = locate_column_index(column_ranges, bbox_center_x(cell.bbox))
+            assigned_items[columns[target_index]].append(cell)
+
+        assigned = {
+            column: clean_table_cell_value(
+                " ".join(item.text for item in sorted(items, key=lambda item: item.bbox[0])),
+                column,
+            )
+            for column, items in assigned_items.items()
+        }
+        if row_has_meaningful_values(assigned):
+            table_rows.append(assigned)
+
+    table_rows = postprocess_table_rows(table_rows)
+    if not table_rows:
+        return None
+
+    used_rows = rows[header_index : header_index + 1 + len(table_rows)]
+    avg_confidence = sum(cell.confidence for row in used_rows for cell in row) / max(
+        sum(len(row) for row in used_rows),
+        1,
+    )
+    return TableItem(columns=columns, rows=table_rows, page_no=page_no, confidence=max(0.62, min(0.94, avg_confidence)))
+
+
+def derive_ranges_from_cells(cells: list[OCRDetection]) -> list[tuple[float, float]]:
+    sorted_cells = sorted(cells, key=lambda cell: cell.bbox[0])
+    centers = [bbox_center_x(cell.bbox) for cell in sorted_cells]
+    ranges: list[tuple[float, float]] = []
+    for index, cell in enumerate(sorted_cells):
+        previous_boundary = (centers[index - 1] + centers[index]) / 2 if index > 0 else cell.bbox[0] - 80
+        next_boundary = (centers[index] + centers[index + 1]) / 2 if index < len(sorted_cells) - 1 else cell.bbox[2] + 80
+        ranges.append((previous_boundary, next_boundary))
+    return ranges
+
+
+def has_mixed_text_header(row: list[OCRDetection]) -> bool:
+    line_text = " ".join(item.text.lower() for item in row)
+    text_cells = sum(1 for item in row if re.search(r"[A-Za-z\u4e00-\u9fa5#]", item.text))
+    numeric_cells = sum(1 for item in row if NUMERIC_PATTERN.fullmatch(item.text.replace(",", "").strip()))
+    return text_cells >= 3 and numeric_cells == 0 and any(token in line_text for token in ("customer", "order", "model", "qty", "revenue", "单价", "出货"))
 
 
 def score_table_header(line_text: str) -> int:

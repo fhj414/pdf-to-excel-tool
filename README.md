@@ -155,7 +155,7 @@ docker compose up --build
 
 ## AI 表格抽取配置
 
-扫描型 PDF 和图片会优先走 OpenRouter 视觉模型。默认模型偏速度和成本：
+扫描型 PDF 和图片默认走本地 OCR + 表格行列聚类，优先保证速度和稳定性。OpenRouter 只作为可选兜底：
 
 ```env
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
@@ -163,14 +163,15 @@ DEFAULT_MODEL_NAME=google/gemini-2.0-flash-lite-001
 OPENROUTER_FALLBACK_MODELS_RAW=google/gemini-2.0-flash-001,google/gemini-2.5-flash-lite
 OPENROUTER_SITE_URL=https://finance-tools.fuhaojun.com
 OPENROUTER_APP_TITLE=PDF to Excel Tool
+ENABLE_AI_VISION_FALLBACK=false
 OPENROUTER_TIMEOUT_SECONDS=35
 VISION_IMAGE_MAX_WIDTH=1400
 VISION_IMAGE_JPEG_QUALITY=72
 OPENROUTER_API_KEY=你的 OpenRouter Key
 ```
 
-如果复杂表格识别质量不够，可以只调整模型名：
+如果本地 OCR 没抽到表格，再希望自动调用 AI 兜底，可以打开：
 
 ```env
-DEFAULT_MODEL_NAME=google/gemini-2.0-flash-001
+ENABLE_AI_VISION_FALLBACK=true
 ```

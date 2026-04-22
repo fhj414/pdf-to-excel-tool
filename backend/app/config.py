@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     openrouter_fallback_models_raw: str = "google/gemini-2.0-flash-001,google/gemini-2.5-flash-lite"
     openrouter_site_url: str = "https://finance-tools.fuhaojun.com"
     openrouter_app_title: str = "PDF to Excel Tool"
+    enable_ai_vision_fallback: bool = False
     openrouter_timeout_seconds: int = Field(default=35, ge=5, le=120)
     vision_image_max_width: int = Field(default=1400, ge=600, le=2400)
     vision_image_jpeg_quality: int = Field(default=72, ge=40, le=95)
